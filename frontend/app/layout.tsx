@@ -47,6 +47,12 @@ export default function RootLayout({
                 >
                   Projects
                 </Link>
+                <Link
+                  href="/playground/arma-intro"
+                  className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:text-green-600 dark:hover:text-green-400"
+                >
+                  Playground
+                </Link>
                 <a
                   href="http://localhost:8000/docs"
                   target="_blank"
