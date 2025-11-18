@@ -1,0 +1,3 @@
+# This file ensures the samples directory is tracked by git
+# Sample datasets can be committed or generated via scripts/create_sample_datasets.py
+
