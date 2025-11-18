@@ -58,10 +58,30 @@ export function ForecastChart({
   }, [historical]);
 
   // Combine data - historical first, then forecasts
-  // This ensures smooth transition from historical to forecast
-  // Memoize to prevent recreation on every render
+  // Add a bridge point to ensure continuity: duplicate the last historical point
+  // as the first forecast point so lines connect smoothly
   const allData = useMemo(() => {
-    return [...historicalData, ...forecastData];
+    if (historicalData.length === 0) {
+      return forecastData;
+    }
+    
+    const lastHistorical = historicalData[historicalData.length - 1];
+    const firstForecast = forecastData[0];
+    
+    // Create a bridge point: all lines converge at the last historical point
+    // This is the beginning of the forecast, so all values (historical, forecast, CI) must meet here
+    const lastHistoricalValue = lastHistorical.historical;
+    const bridgePoint = {
+      date: lastHistorical.date,
+      historical: lastHistoricalValue, // Historical line ends here
+      forecast: lastHistoricalValue, // Forecast line starts here (continuity)
+      lower: lastHistoricalValue, // Lower CI converges here (beginning of forecast)
+      upper: lastHistoricalValue, // Upper CI converges here (beginning of forecast)
+      isBridge: true,
+    };
+    
+    // Combine: historical data + bridge point + rest of forecasts
+    return [...historicalData, bridgePoint, ...forecastData.slice(1)];
   }, [historicalData, forecastData]);
   
   // Ensure we have data to display
