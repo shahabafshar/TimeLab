@@ -101,26 +101,29 @@ async def train_model(
             exog = pd.DataFrame(request.exog_variables)
             exog.index = pd.to_datetime(timeseries.index[:len(exog)])
         
-        # Train model
-        params = request.parameters
-        result = TrainingService.train_sarimax(
-            timeseries,
-            params.p,
-            params.d,
-            params.q,
-            params.P,
-            params.D,
-            params.Q,
-            params.s,
-            exog,
-            quiet=True
-        )
+        # Determine model type
+        model_type = request.model_type or "SARIMAX"
         
-        # Save model to database
-        model = Model(
-            name=f"SARIMAX({params.p},{params.d},{params.q})x({params.P},{params.D},{params.Q},{params.s})",
-            type="SARIMAX",
-            parameters={
+        # Prepare parameters based on model type
+        if model_type.upper() == "ARTFIMA":
+            if not request.artfima_parameters:
+                raise HTTPException(
+                    status_code=400,
+                    detail="artfima_parameters required when model_type is ARTFIMA"
+                )
+            artfima_params = request.artfima_parameters
+            parameters = {
+                "p": artfima_params.p,
+                "d": artfima_params.d,
+                "q": artfima_params.q,
+                "glp": artfima_params.glp,
+                "lambda": artfima_params.lambda_param,
+                "fixd": artfima_params.fixd,
+                "likAlg": "exact",
+            }
+        else:
+            params = request.parameters
+            parameters = {
                 "p": params.p,
                 "d": params.d,
                 "q": params.q,
@@ -128,10 +131,67 @@ async def train_model(
                 "D": params.D,
                 "Q": params.Q,
                 "s": params.s,
-            },
-            model_data=result["model_data"],
-            summary=result["summary"],
-        )
+            }
+        
+        # Train model using factory method
+        try:
+            result = TrainingService.train_model(
+                Y=timeseries,
+                model_type=model_type,
+                parameters=parameters,
+                exog_variables=exog if model_type.upper() == "SARIMAX" else None,
+                quiet=True
+            )
+        except ValueError as e:
+            # Provide clear error messages for validation errors
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model training validation error: {str(e)}"
+            )
+        except Exception as e:
+            # Log the full error for debugging
+            import traceback
+            error_detail = str(e)
+            print(f"Model training error: {error_detail}")
+            print(traceback.format_exc())
+            raise HTTPException(
+                status_code=500,
+                detail=f"Model training failed: {error_detail}"
+            )
+        
+        # Save model to database
+        if model_type.upper() == "ARTFIMA":
+            artfima_params = request.artfima_parameters
+            model = Model(
+                name=f"{artfima_params.glp}({artfima_params.p},{artfima_params.d},{artfima_params.q})",
+                type=artfima_params.glp,
+                parameters={
+                    "p": artfima_params.p,
+                    "d": artfima_params.d,
+                    "q": artfima_params.q,
+                    "glp": artfima_params.glp,
+                    "lambda": artfima_params.lambda_param,
+                },
+                model_data=result["model_data"],
+                summary=result["summary"],
+            )
+        else:
+            params = request.parameters
+            model = Model(
+                name=f"SARIMAX({params.p},{params.d},{params.q})x({params.P},{params.D},{params.Q},{params.s})",
+                type="SARIMAX",
+                parameters={
+                    "p": params.p,
+                    "d": params.d,
+                    "q": params.q,
+                    "P": params.P,
+                    "D": params.D,
+                    "Q": params.Q,
+                    "s": params.s,
+                },
+                model_data=result["model_data"],
+                summary=result["summary"],
+            )
         
         db.add(model)
         db.commit()

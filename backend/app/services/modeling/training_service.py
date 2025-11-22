@@ -123,4 +123,64 @@ class TrainingService:
         """Deserialize model from base64 string"""
         pickled = base64.b64decode(model_data.encode('utf-8'))
         return pickle.loads(pickled)
+    
+    @staticmethod
+    def train_model(
+        Y: pd.Series,
+        model_type: str,
+        parameters: Dict[str, Any],
+        exog_variables: Optional[pd.DataFrame] = None,
+        quiet: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Factory method to train a model based on model_type
+        
+        Args:
+            Y: Time series data
+            model_type: "SARIMAX" or "ARTFIMA"
+            parameters: Model parameters (format depends on model_type)
+            exog_variables: Exogenous variables (only for SARIMAX)
+            quiet: Suppress output
+            
+        Returns:
+            Dict with model results and metadata
+        """
+        if model_type.upper() == "SARIMAX":
+            return TrainingService.train_sarimax(
+                Y=Y,
+                p=parameters["p"],
+                d=parameters["d"],
+                q=parameters["q"],
+                P=parameters["P"],
+                D=parameters["D"],
+                Q=parameters["Q"],
+                s=parameters["s"],
+                exog_variables=exog_variables,
+                quiet=quiet
+            )
+        elif model_type.upper() == "ARTFIMA":
+            from app.services.modeling.artfima_training_service import ARTFIMATrainingService
+            
+            # Extract ARTFIMA parameters
+            p = parameters.get("p", 0)
+            d = parameters.get("d", 0.0)
+            q = parameters.get("q", 0)
+            glp = parameters.get("glp", "ARTFIMA")
+            lambda_param = parameters.get("lambda")
+            fixd = parameters.get("fixd")
+            likAlg = parameters.get("likAlg", "exact")
+            
+            return ARTFIMATrainingService.train_artfima(
+                Y=Y,
+                p=p,
+                d=d,
+                q=q,
+                glp=glp,
+                lambda_param=lambda_param,
+                fixd=fixd,
+                likAlg=likAlg,
+                quiet=quiet
+            )
+        else:
+            raise ValueError(f"Unsupported model type: {model_type}")
 

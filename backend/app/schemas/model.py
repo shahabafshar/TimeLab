@@ -26,11 +26,20 @@ class ModelResponse(BaseModel):
     id: str
     name: str
     type: str
-    parameters: Dict[str, int]
-    metrics: Optional[Dict[str, float]] = None
+    parameters: Dict[str, Any]  # Changed from Dict[str, int] to allow strings (glp) and floats (d, lambda)
+    metrics: Optional[Dict[str, Optional[float]]] = None  # Changed to allow None values for individual metrics
     created_at: str
     
     model_config = ConfigDict(from_attributes=True)
+
+
+class ARTFIMAParameters(BaseModel):
+    p: int
+    d: float
+    q: int
+    glp: str  # "ARTFIMA", "ARFIMA", or "ARIMA"
+    lambda_param: Optional[float] = None
+    fixd: Optional[float] = None
 
 
 class TrainModelRequest(BaseModel):
@@ -42,6 +51,10 @@ class TrainModelRequest(BaseModel):
     target_column: Optional[str] = None
     parameters: ModelParameters
     exog_variables: Optional[Dict[str, List[float]]] = None
+    model_type: Optional[str] = "SARIMAX"  # "SARIMAX" or "ARTFIMA"
+    artfima_parameters: Optional[ARTFIMAParameters] = None
+    
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class GridSearchRequest(BaseModel):

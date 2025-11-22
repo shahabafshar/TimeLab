@@ -29,6 +29,8 @@ export default function AnalyzePage() {
   const [project, setProject] = useState<any>(null);
   const [dataset, setDataset] = useState<any>(null);
   const [historicalData, setHistoricalData] = useState<Array<{ date: string; value: number }>>([]);
+  const [modelType, setModelType] = useState<string>("SARIMAX");
+  const [artfimaGlp, setArtfimaGlp] = useState<string>("ARTFIMA");
 
   // Load project and dataset on mount
           useEffect(() => {
@@ -199,10 +201,11 @@ export default function AnalyzePage() {
       // Ensure p is reasonable (typically < 5 for most time series)
       let p = Math.min(acfPacfResult.suggested_parameters.p, 5);
       
-      const response = await apiClient.post("/models/train", {
+      const requestBody: any = {
         dataset_id: project.dataset_id,
         date_column: dateColumn,
         target_column: targetColumn,
+        model_type: modelType,
         parameters: {
           p: p,
           d: stationarityResult.transformation?.d || 0,
@@ -212,7 +215,21 @@ export default function AnalyzePage() {
           Q: acfPacfResult.suggested_parameters.Q,
           s: seasonality,
         },
-      });
+      };
+
+      // Add ARTFIMA-specific parameters if ARTFIMA is selected
+      if (modelType === "ARTFIMA") {
+        requestBody.artfima_parameters = {
+          p: p,
+          d: stationarityResult.transformation?.d || 0.0,
+          q: q,
+          glp: artfimaGlp,
+          lambda_param: null,
+          fixd: null,
+        };
+      }
+
+      const response = await apiClient.post("/models/train", requestBody);
       setTrainedModel(response);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to train model");
@@ -434,6 +451,55 @@ export default function AnalyzePage() {
                   </div>
                 )}
               </div>
+
+              {/* Model Type Selection - Moved here for visibility */}
+              <div className="p-4 bg-purple-50 border-2 border-purple-400 rounded-md shadow-md">
+                <h3 className="font-bold text-lg text-purple-900 mb-3">⚠️ SELECT MODEL TYPE</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-purple-800 mb-2">
+                      Select Model Type
+                    </label>
+                    <select
+                      value={modelType}
+                      onChange={(e) => setModelType(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-purple-400 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-base font-medium bg-white"
+                    >
+                      <option value="SARIMAX">SARIMAX (Seasonal ARIMA with Exogenous Variables)</option>
+                      <option value="ARTFIMA">ARTFIMA (Autoregressive Tempered Fractionally Integrated Moving Average)</option>
+                    </select>
+                    <p className="text-sm text-purple-700 mt-2 font-medium">
+                      {modelType === "SARIMAX" 
+                        ? "✓ Best for seasonal time series with exogenous variables"
+                        : "✓ Best for long-memory time series with fractional integration"}
+                    </p>
+                  </div>
+                  {modelType === "ARTFIMA" && (
+                    <div>
+                      <label className="block text-sm font-medium text-purple-800 mb-2">
+                        ARTFIMA Variant
+                      </label>
+                      <select
+                        value={artfimaGlp}
+                        onChange={(e) => setArtfimaGlp(e.target.value)}
+                        className="w-full px-4 py-3 border-2 border-purple-400 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-base bg-white"
+                      >
+                        <option value="ARTFIMA">ARTFIMA (with tempering parameter)</option>
+                        <option value="ARFIMA">ARFIMA (fractional integration only)</option>
+                        <option value="ARIMA">ARIMA (standard ARIMA)</option>
+                      </select>
+                      <p className="text-sm text-purple-700 mt-2">
+                        {artfimaGlp === "ARTFIMA" 
+                          ? "Includes tempering parameter for semi-long memory"
+                          : artfimaGlp === "ARFIMA"
+                          ? "Fractional differencing without tempering"
+                          : "Standard ARIMA model"}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <button
                 onClick={() => {
                   setStep(3);
@@ -448,6 +514,54 @@ export default function AnalyzePage() {
 
           {step === 3 && (
             <div className="space-y-4">
+              {/* Model Type Selection - Always Visible */}
+              <div className="p-4 bg-purple-50 border-2 border-purple-300 rounded-md">
+                <h3 className="font-bold text-lg text-purple-900 mb-3">Model Type Selection</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-purple-800 mb-2">
+                      Select Model Type
+                    </label>
+                    <select
+                      value={modelType}
+                      onChange={(e) => setModelType(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-purple-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-base font-medium"
+                    >
+                      <option value="SARIMAX">SARIMAX (Seasonal ARIMA with Exogenous Variables)</option>
+                      <option value="ARTFIMA">ARTFIMA (Autoregressive Tempered Fractionally Integrated Moving Average)</option>
+                    </select>
+                    <p className="text-sm text-purple-700 mt-2 font-medium">
+                      {modelType === "SARIMAX" 
+                        ? "✓ Best for seasonal time series with exogenous variables"
+                        : "✓ Best for long-memory time series with fractional integration"}
+                    </p>
+                  </div>
+                  {modelType === "ARTFIMA" && (
+                    <div>
+                      <label className="block text-sm font-medium text-purple-800 mb-2">
+                        ARTFIMA Variant
+                      </label>
+                      <select
+                        value={artfimaGlp}
+                        onChange={(e) => setArtfimaGlp(e.target.value)}
+                        className="w-full px-4 py-3 border-2 border-purple-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-base"
+                      >
+                        <option value="ARTFIMA">ARTFIMA (with tempering parameter)</option>
+                        <option value="ARFIMA">ARFIMA (fractional integration only)</option>
+                        <option value="ARIMA">ARIMA (standard ARIMA)</option>
+                      </select>
+                      <p className="text-sm text-purple-700 mt-2">
+                        {artfimaGlp === "ARTFIMA" 
+                          ? "Includes tempering parameter for semi-long memory"
+                          : artfimaGlp === "ARFIMA"
+                          ? "Fractional differencing without tempering"
+                          : "Standard ARIMA model"}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {loading ? (
                 <div className="flex items-center justify-center py-12">
                   <LoadingSpinner />
@@ -541,7 +655,7 @@ export default function AnalyzePage() {
                 <>
                   <h2 className="text-2xl font-semibold">Step 4: Model Training Complete</h2>
                   <p className="text-gray-600">
-                    Your SARIMAX model has been successfully trained.
+                    Your {trainedModel.type} model has been successfully trained.
                   </p>
                   
                   <div className="p-4 bg-green-50 border border-green-200 rounded-md">
@@ -556,26 +670,43 @@ export default function AnalyzePage() {
                       <p className="text-sm font-semibold text-green-900 mb-2">Parameters:</p>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                         <div>
-                          <span className="text-green-700">p:</span> {trainedModel.parameters.p}
+                          <span className="text-green-700">p:</span> {trainedModel.parameters.p ?? 'N/A'}
                         </div>
                         <div>
-                          <span className="text-green-700">d:</span> {trainedModel.parameters.d}
+                          <span className="text-green-700">d:</span> {trainedModel.parameters.d ?? 'N/A'}
                         </div>
                         <div>
-                          <span className="text-green-700">q:</span> {trainedModel.parameters.q}
+                          <span className="text-green-700">q:</span> {trainedModel.parameters.q ?? 'N/A'}
                         </div>
-                        <div>
-                          <span className="text-green-700">P:</span> {trainedModel.parameters.P}
-                        </div>
-                        <div>
-                          <span className="text-green-700">D:</span> {trainedModel.parameters.D}
-                        </div>
-                        <div>
-                          <span className="text-green-700">Q:</span> {trainedModel.parameters.Q}
-                        </div>
-                        <div>
-                          <span className="text-green-700">s:</span> {trainedModel.parameters.s}
-                        </div>
+                        {trainedModel.type === "SARIMAX" ? (
+                          <>
+                            <div>
+                              <span className="text-green-700">P:</span> {trainedModel.parameters.P ?? 'N/A'}
+                            </div>
+                            <div>
+                              <span className="text-green-700">D:</span> {trainedModel.parameters.D ?? 'N/A'}
+                            </div>
+                            <div>
+                              <span className="text-green-700">Q:</span> {trainedModel.parameters.Q ?? 'N/A'}
+                            </div>
+                            <div>
+                              <span className="text-green-700">s:</span> {trainedModel.parameters.s ?? 'N/A'}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            {trainedModel.parameters.glp && (
+                              <div>
+                                <span className="text-green-700">GLP:</span> {trainedModel.parameters.glp}
+                              </div>
+                            )}
+                            {trainedModel.parameters.lambda !== undefined && (
+                              <div>
+                                <span className="text-green-700">λ:</span> {trainedModel.parameters.lambda?.toFixed(4) ?? 'N/A'}
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -617,7 +748,7 @@ export default function AnalyzePage() {
                 <div className="space-y-4">
                   <h2 className="text-2xl font-semibold">Step 4: Train Model</h2>
                   <p className="text-gray-600">
-                    Train a SARIMAX model using the parameters suggested from ACF/PACF analysis.
+                    Train a {modelType} model using the parameters suggested from ACF/PACF analysis.
                   </p>
                   {acfPacfResult && (
                     <div className="p-4 bg-blue-50 border border-blue-200 rounded-md mb-4">
@@ -847,7 +978,7 @@ export default function AnalyzePage() {
             </button>
             <button className="p-4 border rounded-lg hover:bg-gray-50 text-left">
               <div className="font-medium">Train Model</div>
-              <div className="text-sm text-gray-500">SARIMAX</div>
+              <div className="text-sm text-gray-500">{modelType}</div>
             </button>
             <button className="p-4 border rounded-lg hover:bg-gray-50 text-left">
               <div className="font-medium">Forecast</div>
@@ -859,4 +990,5 @@ export default function AnalyzePage() {
     </div>
   );
 }
+
 
