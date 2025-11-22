@@ -403,12 +403,17 @@ def artfima(z, glp="ARTFIMA", arimaOrder=(0, 0, 0), likAlg="exact", fixd=None,
                     binit[1] = 0.025  # lambda
             elif glpOrder == 1:
                 binit[0] = 0.2  # d
-            
+
+            # IMPORTANT: Use initial values that avoid white noise ACVF
+            # When |phi| ≈ |theta|, ARMA ACVF collapses to white noise, breaking optimization
+            # Use SMALL AR and LARGE MA (or vice versa) to ensure proper autocorrelation
             if p > 0:
-                phiInit = ARToPacf(np.tile([0.1, -0.1], (p + 1) // 2)[:p])
+                # Use pattern [0.1, -0.05, 0.1, -0.05, ...] for AR - SMALL values
+                phiInit = ARToPacf(np.tile([0.1, -0.05], (p + 1) // 2)[:p])
                 binit[glpAdd:(p + glpAdd)] = phiInit
             if q > 0:
-                thetaInit = ARToPacf(np.tile([0.1, -0.1], (q + 1) // 2)[:q])
+                # Use pattern [0.7, -0.5, 0.7, -0.5, ...] for MA - LARGE values (different from AR!)
+                thetaInit = ARToPacf(np.tile([0.7, -0.5], (q + 1) // 2)[:q])
                 binit[(p + glpAdd):(p + q + glpAdd)] = thetaInit
         
         # Try different optimization methods

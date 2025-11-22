@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(python test_artfima_debug.py:*)",
+      "Bash(backendvenvScriptspython test_artfima_debug.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_artfima_debug.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_artfima_bug.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_tacvf_direct.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_artfima_tacvf.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_tacvf_components.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_tacvf_arma.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_tacvf_arma_values.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_statsmodels_acvf.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_arma_sign_convention.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_understand_issue.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_mix_function.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_tacvf_arma_direct.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_new_initial_values.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_arma_white_noise_condition.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_statsmodels_sign.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_final_artfima.py)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" -c \"from artfima_python.tacvf import tacvfARMA; import numpy as np; result = tacvfARMA(phi=np.array([0.1]), theta=np.array([0.7]), maxlag=10, sigma2=1.0); print(''TACVF:'', result[:5]); print(''Is WN:'', np.all(np.abs(result[1:]) < 1e-10))\")",
+      "Bash(\"./backend/venv/Scripts/python.exe\":*)",
+      "Bash(\"./backend/venv/Scripts/python.exe\" test_initial_tacvf.py)",
+      "Bash(uvicorn:*)",
+      "Bash(timeout 3 sleep:*)",
+      "Bash(\"./venv/Scripts/python.exe\" -m uvicorn app.main:app --reload --port 8000)",
+      "Bash(timeout 5 sleep:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
