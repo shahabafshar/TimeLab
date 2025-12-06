@@ -3,7 +3,9 @@
     "allow": [
       "Bash(\"C:\\Program Files\\R\\R-4.5.2\\bin\\Rscript.exe\" -e \"install.packages(''ARTFIMA/artfima'', repos=NULL, type=''source'')\")",
       "Bash(\"C:\\Program Files\\R\\R-4.5.2\\bin\\Rscript.exe\":*)",
-      "Bash(\"C:\\Program Files\\R\\R-4.5.2\\bin\\Rscript.exe\" test_r_simple.R)"
+      "Bash(\"C:\\Program Files\\R\\R-4.5.2\\bin\\Rscript.exe\" test_r_simple.R)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nFix ARTFIMA optimizer and add R vs Python comparison tests\n\n- Add best_valid_solution tracking during optimization to prevent\n  invalid boundary results\n- Add high_d starting point for better exploration of parameter space\n- Add 24-period forecast comparison tests (Python vs R)\n- Python now produces valid results close to R''s implementation:\n  * d=10.0 vs R''s 9.999, lambda=2.05 vs 2.02\n  * LL=-961 vs R''s -915, similar phi/theta values\n- Include R and Python test scripts for verification\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []
