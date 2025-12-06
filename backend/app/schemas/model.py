@@ -82,6 +82,8 @@ class PredictionRequest(BaseModel):
 class ForecastRequest(BaseModel):
     periods: int
     transformation_type: Optional[str] = "none"
-    
+    last_date: Optional[str] = None  # Last date in the historical data (e.g., "2023-12-01")
+    frequency: Optional[str] = None  # Frequency: "Daily", "Weekly", "Monthly", "Quarterly", "Yearly"
+
     model_config = ConfigDict(protected_namespaces=())
 

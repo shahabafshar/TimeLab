@@ -162,15 +162,20 @@ async def train_model(
         # Save model to database
         if model_type.upper() == "ARTFIMA":
             artfima_params = request.artfima_parameters
+            # Use ESTIMATED parameters from result, not input parameters
+            estimated_params = result.get("parameters", {})
+            estimated_d = estimated_params.get("d", artfima_params.d)
+            estimated_lambda = estimated_params.get("lambda", artfima_params.lambda_param)
+
             model = Model(
-                name=f"{artfima_params.glp}({artfima_params.p},{artfima_params.d},{artfima_params.q})",
+                name=f"{artfima_params.glp}({artfima_params.p},{estimated_d:.3f},{artfima_params.q})",
                 type=artfima_params.glp,
                 parameters={
                     "p": artfima_params.p,
-                    "d": artfima_params.d,
+                    "d": estimated_d,  # Use ESTIMATED d
                     "q": artfima_params.q,
                     "glp": artfima_params.glp,
-                    "lambda": artfima_params.lambda_param,
+                    "lambda": estimated_lambda,  # Use ESTIMATED lambda
                 },
                 model_data=result["model_data"],
                 summary=result["summary"],
@@ -344,7 +349,9 @@ async def forecast(
         result = ForecastService.generate_forecast(
             fitted_model,
             request.periods,
-            transformation_type=transformation_type
+            transformation_type=transformation_type,
+            last_date=request.last_date,
+            frequency=request.frequency
         )
         
         return result

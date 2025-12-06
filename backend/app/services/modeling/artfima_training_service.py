@@ -50,11 +50,12 @@ class ARTFIMATrainingService:
         lambda_param: Optional[float] = None,
         fixd: Optional[float] = None,
         likAlg: str = "exact",
-        quiet: bool = True
+        quiet: bool = True,
+        integ_order: int = 1  # Integer differencing order (D) - makes data stationary
     ) -> Dict[str, Any]:
         """
         Train an ARTFIMA model
-        
+
         Args:
             Y: Time series data
             p: AR order
@@ -65,7 +66,9 @@ class ARTFIMATrainingService:
             fixd: Fixed d parameter (optional, only for ARTFIMA)
             likAlg: Likelihood algorithm ("exact" or "Whittle")
             quiet: Suppress output
-            
+            integ_order: Integer differencing order (D) to make data stationary.
+                         Default is 1 to handle trending data like CO2.
+
         Returns:
             Dict with model results and metadata
         """
@@ -141,7 +144,25 @@ class ARTFIMATrainingService:
         z = np.ascontiguousarray(z, dtype=np.float64)
         if z.ndim != 1:
             raise ValueError(f"Final array has wrong dimensions: {z.ndim}, shape: {z.shape}")
-        
+
+        # Apply integer differencing to make data stationary (ARTFIMA requires stationary input)
+        # Store original data and last values for forecast integration
+        z_original = z.copy()
+        last_values = []  # Store last values for each differencing level
+
+        if integ_order > 0:
+            for i in range(integ_order):
+                # Store the last value before differencing (needed for forecast integration)
+                last_values.append(z[-1])
+                # Apply first difference
+                z = np.diff(z)
+
+            if len(z) < max(p, q, 1) + 10:
+                raise ValueError(
+                    f"Time series too short after differencing ({len(z)} obs). "
+                    f"integ_order={integ_order}, need more data or reduce differencing."
+                )
+
         # Determine arimaOrder (regular differencing)
         # ARTFIMA handles fractional d internally, so we use d0=0 for regular differencing
         # and let ARTFIMA handle the fractional part
@@ -201,7 +222,12 @@ class ARTFIMATrainingService:
                     f"Original error: {error_msg}"
                 )
             raise ValueError(f"ARTFIMA model fitting failed: {error_msg}")
-        
+
+        # Store differencing info in result for forecast integration
+        result.integ_order = integ_order
+        result.last_values = np.array(last_values) if last_values else None
+        result.z_original = z_original
+
         # Serialize model result
         model_data = ARTFIMATrainingService._serialize_model(result)
         

@@ -53,7 +53,11 @@ def DLLoglikelihood(r, z):
         
         # Update variance
         v_new = v_prev * (1 - phi_new**2)
-        
+
+        # Check for non-positive variance (indicates non-positive definite matrix)
+        if v_new <= 0:
+            return np.nan
+
         # Update coefficients
         if i > 1:
             phi[:i-1] = phi[:i-1] - phi_new * phi[i-2::-1]
@@ -149,17 +153,20 @@ def exactLoglikelihood(r, z):
         sigmaSq = quad / n
         
     except np.linalg.LinAlgError:
-        # Fallback if Cholesky fails
-        try:
-            logdet = np.linalg.slogdet(R)[1]
-            quad = np.dot(z, np.linalg.solve(R, z))
-            LL = -0.5 * (n * np.log(2 * np.pi) + logdet + quad)
-            sigmaSq = quad / n
-        except:
-            LL = np.nan
-            sigmaSq = np.nan
-    
+        # Cholesky failed - matrix is not positive definite
+        # Return nan instead of trying fallback (which can give invalid results)
+        LL = np.nan
+        sigmaSq = np.nan
+
+    # Validate results - sigmaSq must be positive for valid model
+    if sigmaSq is not None and (not np.isfinite(sigmaSq) or sigmaSq <= 0):
+        LL = np.nan
+        sigmaSq = np.nan
+
     return {'LL': LL, 'sigmaSq': sigmaSq}
+
+
+
 
 
 

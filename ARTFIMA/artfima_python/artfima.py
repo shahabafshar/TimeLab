@@ -15,7 +15,7 @@ from .utils import ARToPacf, PacfToAR, InvertibleQ
 
 class ARTFIMAResult:
     """Container class for ARTFIMA model results."""
-    
+
     def __init__(self):
         self.dHat = None
         self.lambdaHat = None
@@ -49,6 +49,10 @@ class ARTFIMAResult:
         self.optAlg = None
         self.varbeta = None
         self.hessian = None
+        # For non-stationary data handling (integer differencing)
+        self.integ_order = 0  # Number of times data was differenced (D)
+        self.last_values = None  # Last value(s) before differencing for forecast integration
+        self.z_original = None  # Original undifferenced data
     
     def __repr__(self):
         return f"ARTFIMA({self.glp}) model: d={self.dHat:.4f}, lambda={self.lambdaHat:.4f}, " \
@@ -172,6 +176,20 @@ class ARTFIMAResult:
                     # Uncertainty grows gradually with horizon (not too fast)
                     forecast_sd[h - 1] = base_sd * (1 + 0.1 * h)  # Linear growth, not sqrt
         
+        # If the model was fit to differenced data, integrate forecasts back
+        if self.integ_order > 0 and self.last_values is not None:
+            # Integrate forecasts back to original level
+            # For D=1: forecast_original[i] = forecast_diff[i] + last_original_value + sum(forecast_diff[0:i])
+            # This is equivalent to: forecast_original = last_value + cumsum(forecasts)
+            for _ in range(self.integ_order):
+                # Get the last value from original series
+                last_val = self.last_values[-1] if hasattr(self.last_values, '__len__') else self.last_values
+                # Integrate: cumulative sum starting from last original value
+                forecasts = last_val + np.cumsum(forecasts)
+                # Update last_values for next integration if D > 1
+                if hasattr(self.last_values, '__len__') and len(self.last_values) > 1:
+                    self.last_values = self.last_values[:-1]
+
         return {
             'Forecasts': forecasts,
             'SDForecasts': forecast_sd
@@ -257,8 +275,10 @@ def artfima(z, glp="ARTFIMA", arimaOrder=(0, 0, 0), likAlg="exact", fixd=None,
     dfHi = 0.49
     
     if glp == "ARTFIMA":
-        blo = np.concatenate([[lambdaLo, -dHi], np.full(p + q, -0.99)])
-        bhi = np.concatenate([[lambdaHi, dHi], np.full(p + q, 0.99)])
+        # IMPORTANT: Order must match Entropy function which expects [d, lambda, phi..., theta...]
+        # d bounds: [-dHi, dHi], lambda bounds: [lambdaLo, lambdaHi]
+        blo = np.concatenate([[-dHi, lambdaLo], np.full(p + q, -0.99)])
+        bhi = np.concatenate([[dHi, lambdaHi], np.full(p + q, 0.99)])
     elif glp == "ARFIMA":
         blo = np.concatenate([[-dfHi], np.full(p + q, -0.99)])
         bhi = -blo
@@ -306,9 +326,12 @@ def artfima(z, glp="ARTFIMA", arimaOrder=(0, 0, 0), likAlg="exact", fixd=None,
     
     # Optimization function
     count = [0]  # Use list to allow modification in nested function
-    
+    # Track best valid solution found during optimization
+    best_valid_solution = {'fun': np.inf, 'x': None}
+
     def Entropy(beta):
         """Negative log-likelihood function."""
+        nonlocal best_valid_solution
         phi = theta = lambda_param = d = np.array([])
         r = None
         count[0] += 1
@@ -353,25 +376,37 @@ def artfima(z, glp="ARTFIMA", arimaOrder=(0, 0, 0), likAlg="exact", fixd=None,
         # Compute likelihood
         if likAlg == "exact":
             try:
-                r = artfimaTACVF(d=d, lambda_param=lambda_param, phi=phi, 
+                r = artfimaTACVF(d=d, lambda_param=lambda_param, phi=phi,
                                 theta=theta, maxlag=n - 1)
                 if not np.all(np.isfinite(r)):
                     return entropyPenalty
+                # Check for valid covariance (variance must be positive)
+                if r[0] <= 0:
+                    return entropyPenalty
                 negLL = -DLLoglikelihood(r, w)
                 if not np.isfinite(negLL):
+                    return entropyPenalty
+                # Sanity check: negLL should be positive (LL should be negative for valid model)
+                # If negLL is negative, something went wrong
+                if negLL < 0:
                     return entropyPenalty
             except:
                 return entropyPenalty
         else:  # Whittle
             try:
-                fp = artfimaSDF(n=n, d=d, lambda_param=lambda_param, 
+                fp = artfimaSDF(n=n, d=d, lambda_param=lambda_param,
                               phi=phi, theta=theta, plot="none")
                 negLL = np.mean(Ip / fp)
                 if not np.isfinite(negLL):
                     return entropyPenalty
             except:
                 return entropyPenalty
-        
+
+        # Track best valid solution found during optimization
+        if negLL < best_valid_solution['fun']:
+            best_valid_solution['fun'] = negLL
+            best_valid_solution['x'] = beta.copy()
+
         return negLL
     
     # Optimization
@@ -393,49 +428,119 @@ def artfima(z, glp="ARTFIMA", arimaOrder=(0, 0, 0), likAlg="exact", fixd=None,
         }
         ans['convergence'] = 0 if result.success else 1
     elif len(binit) > 0:
-        # Initialize parameters if not provided
-        if b0 is None or len(b0) == 0:
+        # Multi-start optimization: try different initial values to avoid local minima
+        # R finds optimal d near dMax (d≈10), so we need to explore that region too
+
+        def create_initial_values(d_init, lambda_init, phi_pattern, theta_pattern):
+            """Create initial parameter vector with given starting values."""
+            init = np.zeros(nbeta)
             if glpOrder == 2:
                 if fixd is not None:
-                    binit[0] = 0.025  # lambda
+                    init[0] = lambda_init
                 else:
-                    binit[0] = 0.3    # d
-                    binit[1] = 0.025  # lambda
+                    init[0] = d_init
+                    init[1] = lambda_init
             elif glpOrder == 1:
-                binit[0] = 0.2  # d
+                init[0] = d_init
 
-            # IMPORTANT: Use initial values that avoid white noise ACVF
-            # When |phi| ≈ |theta|, ARMA ACVF collapses to white noise, breaking optimization
-            # Use SMALL AR and LARGE MA (or vice versa) to ensure proper autocorrelation
             if p > 0:
-                # Use pattern [0.1, -0.05, 0.1, -0.05, ...] for AR - SMALL values
-                phiInit = ARToPacf(np.tile([0.1, -0.05], (p + 1) // 2)[:p])
-                binit[glpAdd:(p + glpAdd)] = phiInit
+                init[glpAdd:(p + glpAdd)] = np.tile(phi_pattern, (p + 1) // 2)[:p]
             if q > 0:
-                # Use pattern [0.7, -0.5, 0.7, -0.5, ...] for MA - LARGE values (different from AR!)
-                thetaInit = ARToPacf(np.tile([0.7, -0.5], (q + 1) // 2)[:q])
-                binit[(p + glpAdd):(p + q + glpAdd)] = thetaInit
-        
-        # Try different optimization methods
-        optAlg = "BFGS"
-        result = minimize(Entropy, binit, method='BFGS', 
-                         options={'maxiter': 500, 'disp': trace > 0})
-        
-        if not result.success or result.status > 0:
-            optAlg = "L-BFGS-B"
+                init[(p + glpAdd):(p + q + glpAdd)] = np.tile(theta_pattern, (q + 1) // 2)[:q]
+            return init
+
+        # Define multiple starting points to explore different regions
+        starting_points = []
+
+        if b0 is not None and len(b0) > 0:
+            # User-provided initial values
+            starting_points.append(("user", np.asarray(b0)))
+        else:
+            # Start 1: R-like starting point (works well for many datasets)
+            # R's optimal often has high d and moderate lambda
+            init_r = np.zeros(nbeta)
+            if glpOrder == 2:
+                init_r[0] = 8.0   # d near upper bound (R often finds d~10)
+                init_r[1] = 1.5   # lambda in typical range
+            elif glpOrder == 1:
+                init_r[0] = 0.3   # d for ARFIMA
+
+            if p > 0:
+                # PACF that gives moderate AR coefficients
+                phi_pacf_r = np.tile([-0.5, -0.3], (p + 1) // 2)[:p]
+                init_r[glpAdd:(p + glpAdd)] = phi_pacf_r
+            if q > 0:
+                # PACF that gives moderate MA coefficients
+                theta_pacf_r = np.tile([0.3, 0.2, -0.2, -0.1], (q + 3) // 4)[:q]
+                init_r[(p + glpAdd):(p + q + glpAdd)] = theta_pacf_r
+            starting_points.append(("r_like", init_r))
+
+            # Start 2: Original R defaults (low d)
+            starting_points.append(("low_d", create_initial_values(0.3, 0.025, [0.1, -0.05], [0.1, -0.1])))
+
+            # Start 3: Medium d
+            starting_points.append(("med_d", create_initial_values(3.0, 0.8, [0.2, -0.1], [0.2, -0.15])))
+
+            # Start 4: High d with appropriate lambda (close to R's optimal region)
+            # R often finds d≈10, lambda≈2 as optimal
+            init_high_d = np.zeros(nbeta)
+            if glpOrder == 2:
+                init_high_d[0] = 9.5   # d near boundary
+                init_high_d[1] = 2.0   # lambda in optimal range for high d
+            elif glpOrder == 1:
+                init_high_d[0] = 0.45  # Higher d for ARFIMA
+            if p > 0:
+                # PACF values that produce moderate AR coefficients
+                phi_pacf_high = np.tile([0.3, -0.2], (p + 1) // 2)[:p]
+                init_high_d[glpAdd:(p + glpAdd)] = phi_pacf_high
+            if q > 0:
+                # PACF values that produce moderate MA coefficients
+                theta_pacf_high = np.tile([0.4, 0.3, -0.1, -0.2], (q + 3) // 4)[:q]
+                init_high_d[(p + glpAdd):(p + q + glpAdd)] = theta_pacf_high
+            starting_points.append(("high_d", init_high_d))
+
+        best_result = None
+        best_fun = np.inf
+        best_optAlg = "L-BFGS-B"
+
+        for start_name, start_vals in starting_points:
+            # Use L-BFGS-B which respects bounds (important for d and lambda constraints)
+            try:
+                result_lbfgsb = minimize(Entropy, start_vals, method='L-BFGS-B',
+                                        bounds=list(zip(blo, bhi)),
+                                        options={'maxiter': 500, 'disp': trace > 0})
+                if np.isfinite(result_lbfgsb.fun) and result_lbfgsb.fun < best_fun:
+                    best_result = result_lbfgsb
+                    best_fun = result_lbfgsb.fun
+                    best_optAlg = f"L-BFGS-B ({start_name})"
+            except:
+                pass
+
+        # Use the best result found
+        if best_result is not None and np.isfinite(best_result.fun) and best_result.fun < entropyPenalty:
+            result = best_result
+            optAlg = best_optAlg
+        else:
+            # Fallback to L-BFGS-B with bounds
+            binit = create_initial_values(0.3, 0.025, [0.1, -0.05], [0.1, -0.1])
+            optAlg = "L-BFGS-B (fallback)"
             result = minimize(Entropy, binit, method='L-BFGS-B',
                              bounds=list(zip(blo, bhi)),
                              options={'maxiter': 500, 'disp': trace > 0})
-        
-        if not result.success or result.status > 0:
-            optAlg = "CG"
-            result = minimize(Entropy, binit, method='CG',
-                             options={'maxiter': 500, 'disp': trace > 0})
-        
-        if not result.success or result.status > 0:
-            optAlg = "Nelder-Mead"
-            result = minimize(Entropy, binit, method='Nelder-Mead',
-                             options={'maxiter': 500, 'disp': trace > 0})
+
+        # If optimizer ended at invalid point, use best valid solution found during optimization
+        if (not np.isfinite(result.fun) or result.fun >= entropyPenalty) and \
+           best_valid_solution['x'] is not None and np.isfinite(best_valid_solution['fun']):
+            # Create a result-like object with the best valid solution
+            class BestValidResult:
+                def __init__(self, x, fun):
+                    self.x = x
+                    self.fun = fun
+                    self.success = True
+                    self.message = "Best valid solution from optimization path"
+
+            result = BestValidResult(best_valid_solution['x'], best_valid_solution['fun'])
+            optAlg = f"{optAlg} (best_valid)"
         
         # Compute Hessian approximation using numerical differentiation
         try:

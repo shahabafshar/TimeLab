@@ -4,17 +4,80 @@ Forecast service - adapted from arauto/lib/plot_forecast.py
 import pandas as pd
 import numpy as np
 from typing import Callable, Dict, Any, Optional
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
 
 
 class ForecastService:
     """Service for generating forecasts"""
-    
+
+    @staticmethod
+    def _generate_forecast_dates(
+        last_date: Optional[str],
+        frequency: Optional[str],
+        periods: int
+    ) -> list:
+        """
+        Generate forecast dates based on the last historical date and frequency.
+
+        Args:
+            last_date: Last date in historical data (e.g., "2023-12-01")
+            frequency: Data frequency ("Daily", "Weekly", "Monthly", "Quarterly", "Yearly")
+            periods: Number of forecast periods
+
+        Returns:
+            List of date strings in YYYY-MM-DD format
+        """
+        if not last_date or not frequency:
+            # Fallback to Period_X format
+            return [f"Period_{i+1}" for i in range(periods)]
+
+        try:
+            # Parse the last date
+            base_date = pd.to_datetime(last_date)
+
+            # Determine the date increment based on frequency
+            freq_map = {
+                "daily": relativedelta(days=1),
+                "weekly": relativedelta(weeks=1),
+                "monthly": relativedelta(months=1),
+                "quarterly": relativedelta(months=3),
+                "yearly": relativedelta(years=1),
+                # Also support lowercase variations
+                "d": relativedelta(days=1),
+                "w": relativedelta(weeks=1),
+                "m": relativedelta(months=1),
+                "q": relativedelta(months=3),
+                "y": relativedelta(years=1),
+            }
+
+            increment = freq_map.get(frequency.lower())
+            if increment is None:
+                # Default to monthly if frequency not recognized
+                increment = relativedelta(months=1)
+
+            # Generate forecast dates
+            forecast_dates = []
+            current_date = base_date
+            for i in range(periods):
+                current_date = current_date + increment
+                forecast_dates.append(current_date.strftime('%Y-%m-%d'))
+
+            return forecast_dates
+
+        except Exception as e:
+            # Fallback to Period_X format on any error
+            print(f"Warning: Could not generate forecast dates: {e}")
+            return [f"Period_{i+1}" for i in range(periods)]
+
     @staticmethod
     def generate_forecast(
         model,
         periods: int,
         transformation_type: str = "none",
-        exog_variables: Optional[pd.DataFrame] = None
+        exog_variables: Optional[pd.DataFrame] = None,
+        last_date: Optional[str] = None,
+        frequency: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Generate out-of-sample forecasts with confidence intervals
@@ -78,30 +141,25 @@ class ForecastService:
         
         # Rename confidence interval columns
         confidence_interval.columns = ['ci_lower', 'ci_upper']
-        
+
         # Convert forecasts to Series if it's not already
         if not isinstance(forecasts, pd.Series):
             forecasts = pd.Series(forecasts)
-        
-        # Ensure we have a proper index (DatetimeIndex or RangeIndex)
-        if not isinstance(forecasts.index, pd.DatetimeIndex):
-            # If index is not datetime, create a range index
-            forecasts.index = pd.RangeIndex(start=0, stop=len(forecasts))
-        
-        # Convert index to string dates
+
+        # Generate forecast dates
+        # Priority: 1) Use DatetimeIndex from model, 2) Generate from last_date + frequency, 3) Fallback to Period_X
         if isinstance(forecasts.index, pd.DatetimeIndex):
             forecast_dates = forecasts.index.strftime('%Y-%m-%d').tolist()
+        elif last_date and frequency:
+            # Generate dates from last_date and frequency
+            forecast_dates = ForecastService._generate_forecast_dates(last_date, frequency, periods)
         else:
-            # If not datetime, create date strings from the last known date + periods
-            # This is a fallback - ideally the model should have datetime index
+            # Fallback to Period_X format
             forecast_dates = [f"Period_{i+1}" for i in range(len(forecasts))]
-        
-        # Ensure confidence interval index matches
-        if isinstance(confidence_interval.index, pd.DatetimeIndex):
-            ci_dates = confidence_interval.index.strftime('%Y-%m-%d').tolist()
-        else:
-            ci_dates = forecast_dates
-        
+
+        # CI dates match forecast dates
+        ci_dates = forecast_dates
+
         # Prepare result
         return {
             "forecasts": {

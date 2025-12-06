@@ -307,10 +307,15 @@ export default function AnalyzePage() {
       
       // Determine transformation type from stationarity result
       const transformationType = stationarityResult?.transformation?.type?.toLowerCase().includes("log") ? "log" : "none";
-      
+
+      // Get last date from historical data for forecast date continuation
+      const lastDate = historicalData.length > 0 ? historicalData[historicalData.length - 1].date : null;
+
       const response = await apiClient.post(`/models/${trainedModel.id}/forecast`, {
         periods: forecastPeriods,
         transformation_type: transformationType,
+        last_date: lastDate,
+        frequency: frequency,
       });
       setForecastResult(response);
     } catch (err: any) {
@@ -800,6 +805,87 @@ export default function AnalyzePage() {
                       <strong>Forecast Dates:</strong> {forecastResult.forecasts.dates.length} periods
                     </p>
                   </div>
+
+                  {/* Model Parameters & Configuration - Collapsible */}
+                  <details className="border border-gray-200 rounded-md bg-gray-50">
+                    <summary className="px-4 py-3 cursor-pointer font-semibold text-gray-700 hover:bg-gray-100 select-none">
+                      Model Parameters & Configuration
+                    </summary>
+                    <div className="px-4 pb-4 pt-2 border-t border-gray-200">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Model Information */}
+                        <div className="bg-white p-3 rounded border border-gray-200">
+                          <h4 className="text-sm font-semibold text-gray-700 mb-2">Model Information</h4>
+                          <div className="space-y-1 text-sm">
+                            <p><span className="text-gray-500">Model Type:</span> <span className="font-medium">{trainedModel?.type || 'N/A'}</span></p>
+                            <p><span className="text-gray-500">Model Name:</span> <span className="font-medium">{trainedModel?.name || 'N/A'}</span></p>
+                            {trainedModel?.type === 'ARTFIMA' || trainedModel?.type === 'ARFIMA' || trainedModel?.type === 'ARIMA' ? (
+                              <>
+                                <p><span className="text-gray-500">GLP Variant:</span> <span className="font-medium">{trainedModel?.parameters?.glp || trainedModel?.type}</span></p>
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {/* Estimated Parameters */}
+                        <div className="bg-white p-3 rounded border border-gray-200">
+                          <h4 className="text-sm font-semibold text-gray-700 mb-2">Estimated Parameters</h4>
+                          <div className="space-y-1 text-sm">
+                            <p><span className="text-gray-500">p (AR order):</span> <span className="font-medium">{trainedModel?.parameters?.p ?? 'N/A'}</span></p>
+                            <p><span className="text-gray-500">d (differencing):</span> <span className="font-medium">{typeof trainedModel?.parameters?.d === 'number' ? trainedModel.parameters.d.toFixed(4) : 'N/A'}</span></p>
+                            <p><span className="text-gray-500">q (MA order):</span> <span className="font-medium">{trainedModel?.parameters?.q ?? 'N/A'}</span></p>
+                            {trainedModel?.parameters?.lambda !== undefined && trainedModel?.parameters?.lambda !== null && (
+                              <p><span className="text-gray-500">Lambda (tempering):</span> <span className="font-medium">{trainedModel.parameters.lambda.toFixed(4)}</span></p>
+                            )}
+                            {trainedModel?.type === 'SARIMAX' && (
+                              <>
+                                <p><span className="text-gray-500">P (seasonal AR):</span> <span className="font-medium">{trainedModel?.parameters?.P ?? 'N/A'}</span></p>
+                                <p><span className="text-gray-500">D (seasonal diff):</span> <span className="font-medium">{trainedModel?.parameters?.D ?? 'N/A'}</span></p>
+                                <p><span className="text-gray-500">Q (seasonal MA):</span> <span className="font-medium">{trainedModel?.parameters?.Q ?? 'N/A'}</span></p>
+                                <p><span className="text-gray-500">s (seasonality):</span> <span className="font-medium">{trainedModel?.parameters?.s ?? 'N/A'}</span></p>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Data Configuration */}
+                        <div className="bg-white p-3 rounded border border-gray-200">
+                          <h4 className="text-sm font-semibold text-gray-700 mb-2">Data Configuration</h4>
+                          <div className="space-y-1 text-sm">
+                            <p><span className="text-gray-500">Dataset:</span> <span className="font-medium">{dataset?.name || 'N/A'}</span></p>
+                            <p><span className="text-gray-500">Target Column:</span> <span className="font-medium">{targetColumn || 'N/A'}</span></p>
+                            <p><span className="text-gray-500">Frequency:</span> <span className="font-medium">{frequency || 'N/A'}</span></p>
+                            <p><span className="text-gray-500">Seasonality:</span> <span className="font-medium">{stationarityResult?.seasonality || 'N/A'}</span></p>
+                          </div>
+                        </div>
+
+                        {/* Model Metrics */}
+                        <div className="bg-white p-3 rounded border border-gray-200">
+                          <h4 className="text-sm font-semibold text-gray-700 mb-2">Model Metrics</h4>
+                          <div className="space-y-1 text-sm">
+                            <p><span className="text-gray-500">AIC:</span> <span className="font-medium">{trainedModel?.metrics?.aic?.toFixed(2) ?? 'N/A'}</span></p>
+                            <p><span className="text-gray-500">BIC:</span> <span className="font-medium">{trainedModel?.metrics?.bic?.toFixed(2) ?? 'N/A'}</span></p>
+                            {trainedModel?.metrics?.hqic && (
+                              <p><span className="text-gray-500">HQIC:</span> <span className="font-medium">{trainedModel.metrics.hqic.toFixed(2)}</span></p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Stationarity Info */}
+                        {stationarityResult && (
+                          <div className="bg-white p-3 rounded border border-gray-200 md:col-span-2">
+                            <h4 className="text-sm font-semibold text-gray-700 mb-2">Stationarity Analysis</h4>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                              <p><span className="text-gray-500">Is Stationary:</span> <span className="font-medium">{stationarityResult.is_stationary ? 'Yes' : 'No'}</span></p>
+                              <p><span className="text-gray-500">Test Statistic:</span> <span className="font-medium">{stationarityResult.test_statistic?.toFixed(4) ?? 'N/A'}</span></p>
+                              <p><span className="text-gray-500">P-value:</span> <span className="font-medium">{stationarityResult.p_value?.toExponential(2) ?? 'N/A'}</span></p>
+                              <p><span className="text-gray-500">Transformation:</span> <span className="font-medium">{stationarityResult.transformation?.type || 'None'}</span></p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </details>
 
                   {/* Forecast Visualization */}
                   <div className="p-4 bg-white border border-gray-200 rounded-md">
